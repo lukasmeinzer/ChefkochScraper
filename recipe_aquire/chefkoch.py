@@ -2,18 +2,14 @@ import re
 import json
 import requests as rq
 from bs4 import BeautifulSoup
-import lxml
-import cchardet
 
 class Category:
-    id_pattern = re.compile("(/rs/s0)(g\d*)")
 
-    def __init__(self, title, url=None, id=None):
-        self.title = title.replace("&", "")
-        if url is not None:
-            self.id = Category.id_pattern.search(url).group(2)
-        if id is not None:
-            self.id = id
+    def __init__(self, title, url=None, recipe_amount=None):
+        self.title = title
+        if url:
+            self.url = url.strip("/")
+        self.recipe_amount = recipe_amount
 
     def __str__(self):
         return json.dumps(self.__dict__, ensure_ascii=False)
@@ -29,9 +25,11 @@ class Ingredient:
 
 
 class Recipe:
-    def __init__(self, name, id, category, ingredients, text, instructions, tags, kcal, rating, ratings_amount, recipe_url, images):
+    def __init__(self, name, category, ingredients, text, instructions, tags, kcal, rating, ratings_amount, recipe_url, images):
         self.name = name
-        self.id = id
+        match = re.search(r'/rezepte/(\d+)/', recipe_url)
+        if match:
+            self.id = match.group(1)
         self.category = category
         self.ingredients = ingredients
         self.text = text
@@ -43,13 +41,13 @@ class Recipe:
         self.recipe_url = recipe_url
         self.images = images
 
-    """ @staticmethod
+    @staticmethod
     def from_json(json_obj):
         name = json_obj['name']
         id = json_obj['id']
-        category = Category(json_obj['category']['title'], id=json_obj['category']['id'])
+        category = Category(json_obj['category']['title'],json_obj['category']['url'], json_obj['category']['recipe_amount'])
         ingredients = [Ingredient(ingredient['name'], ingredient['amount']) for ingredient in json_obj['ingredients']]
-        return Recipe(name, id, category, ingredients) """
+        return Recipe(name, id, category, ingredients)
 
     def __str__(self):
         return json.dumps({
@@ -76,15 +74,14 @@ class ChefKochAPI:
         soup = BeautifulSoup(response.text, 'lxml')
 
         categories = []
-        for category_column in soup.findAll("div", {"class": "category-column"}):
-            for category_container in category_column.findChildren():
-                category = category_container.find('a', href=True)
-                try:
-                    title = category.string
-                    url = category["href"]
-                except Exception:
-                    continue
-                categories.append(Category(title, url=url))
+        for category in soup.findAll("a", {"class": "sg-pill"}):
+            try:
+                title = category.get("title")
+                # title = ast.literal_eval(category.get("data-tracking-search"))["searchTerm"]
+                url = category.get("href")
+            except Exception:
+                continue
+            categories.append(Category(title, url=url))
 
         return categories
 
@@ -97,19 +94,21 @@ class ChefKochAPI:
         # index = start_index
         while True:
             # Actual part before .html is irrelevant, but site wont serve any results if missing
-            response = requests_session.get(ChefKochAPI.base_url + 'rs/' + 's' + str(page_index) + category.id + '/recipes.html')
-            if response.status_code == 404:
+            response = requests_session.get(ChefKochAPI.base_url + category.url)
+            if response.status_code != 200:
                 return
             soup = BeautifulSoup(response.text, 'lxml')
             if recipe_amount is None:
-                recipe_amount_string = soup.find_all("span", {"class": "ds-text-category ds-mr-3"})[0]
+                recipe_amount_string = soup.find_all("span", {"class": "ds-text-category"})[0]
                 recipe_amount = int(recipe_amount_string.get_text().strip().split(" ")[0].replace(".", ""))
+                category.recipe_amount = recipe_amount
                 print("Crawling " + category.title + " with " + str(recipe_amount) + " recipes.")
             page_index += 1
             for recipe_list_item in soup.find_all("a", {"class": "ds-teaser-link"}):
-
-                recipe_id = recipe_list_item['href'].replace("https://www.chefkoch.de/rezepte/", "")
-                recipe_id = recipe_id[0: recipe_id.index('/')]
+                ...
+                if recipe_list_item.find_parents("div", {"class": "ds-grid"}):
+                    continue
+                
                 recipe_url = recipe_list_item['href']
                 recipe_response = requests_session.get(recipe_url)
 
@@ -119,10 +118,12 @@ class ChefKochAPI:
                 recipe_soup = BeautifulSoup(recipe_response.text, 'lxml')
                 if hasattr(recipe_soup.find("h1"), 'contents'):
                     recipe_name = recipe_soup.find("h1").contents[0]
-                    # print(category.title + ": " + recipe_name)
                     ingredients_tables = recipe_soup.find_all("table", {"class": "ingredients"})
+                    if not ingredients_tables:
+                        continue
                     recipe_ingredients = []
                     for ingredients_table in ingredients_tables:
+                        ...
                         ingredients_table_body = ingredients_table.find("tbody")
                         for row in ingredients_table_body.find_all('tr'):
                             cols = row.find_all('td')
@@ -180,43 +181,27 @@ class ChefKochAPI:
                                 elif image_img_tag.has_attr("src"):
                                     images.append(image_img_tag["src"])
                                     
-                    print(str(recipe_index) + " - ", sep=' ', end='', flush=True)
                     
-                    yield Recipe(recipe_name.replace(u"\u00A0", " "), recipe_id.replace(u"\u00A0", " "),
+                    yield Recipe(recipe_name.replace(u"\u00A0", " "),
                                 category, recipe_ingredients, recipe_text, recipe_instructions, recipe_tags,
                                 recipe_kcal, recipe_rating, recipe_ratings_amount, recipe_url, images)
-                    
-                if recipe_index >= recipe_amount -10:
-                    print(str(recipe_index) + " recipes in category " +  category.title + " crawled!")
-                    return
-                
-                recipe_index += 1
-                """ if 0 < end_index < index:
-                    return """
+                   
 
 
 class DataParser:
 
     @staticmethod
-    def write_recipes_to_json(file_path, recipes, ):
+    def write_recipes_to_json(file_path, recipes, max_recipes=100000000, min_rating=1.0):
         with open(file_path + ".json", "w") as txt_file:
             txt_file.write("[")
-            for recipe in recipes:
+            for amount, recipe in enumerate(recipes):
+                if amount > max_recipes:
+                    break
+                if recipe.rating < min_rating:
+                    continue
                 try:
                     txt_file.write(str(recipe))
                     txt_file.write(",")
                 except Exception:
                     pass
             txt_file.write("{}]")
-
-    @staticmethod
-    def load_recipes_from_json(file_path):
-        raw_text = ""
-        with open(file_path) as file:
-            raw_text = file.read()
-
-        recipes = []
-        for obj in json.loads(raw_text):
-            if len(obj.keys()) > 0:
-                recipes.append(Recipe.from_json(obj))
-        return recipes
