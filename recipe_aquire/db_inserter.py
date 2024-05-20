@@ -39,6 +39,7 @@ def Tabellarisieren(categories):
         })
         .dropna()
         .reset_index(drop=True)
+        .drop_duplicates(["id", "Kategorie Titel"])
         .map(str)
     )
     return df
