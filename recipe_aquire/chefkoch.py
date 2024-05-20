@@ -76,8 +76,7 @@ class ChefKochAPI:
         categories = []
         for category in soup.findAll("a", {"class": "sg-pill"}):
             try:
-                title = category.get("title")
-                # title = ast.literal_eval(category.get("data-tracking-search"))["searchTerm"]
+                title = category.text.strip("\n")
                 url = category.get("href")
             except Exception:
                 continue
@@ -86,9 +85,8 @@ class ChefKochAPI:
         return categories
 
     @staticmethod
-    def parse_recipes(category, end_index=0, start_index=0):
+    def parse_recipes(category):
         page_index = 0
-        recipe_index = 0
         recipe_amount = None
         requests_session = rq.Session()
         # index = start_index
@@ -194,7 +192,7 @@ class DataParser:
     def write_recipes_to_json(file_path, recipes, max_recipes=100000000, min_rating=1.0):
         with open(file_path + ".json", "w") as txt_file:
             txt_file.write("[")
-            for amount, recipe in enumerate(recipes):
+            for amount, recipe in enumerate(recipes, start=1):
                 if amount > max_recipes:
                     break
                 if recipe.rating < min_rating:
