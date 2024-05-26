@@ -11,14 +11,19 @@ def Tabellarisieren(categories):
         file_path = f"Rezepte/{title}.json" 
         with open(file_path) as file:
             raw_text = file.read()
-        content = json.loads(raw_text)
+        try:
+            content = json.loads(raw_text)
+        except:
+            print(file_path)
+            continue
+       
 
         df = pd.DataFrame(content)
     
         df_list.append(df)
 
 
-    df_rezepte = pd.concat(df_list, axis=0).reset_index(drop=True)
+    df_rezepte = pd.concat(df_list, axis=0, ignore_index=True)
 
     df_kategorien = pd.json_normalize(df_rezepte["category"]).rename(columns={"title": "Kategorie Titel", "url": "Kategorie URL", "recipe_amount": "Anzahl Rezepte in Kategorie"})
 
