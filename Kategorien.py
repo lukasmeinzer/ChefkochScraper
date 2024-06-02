@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+import json
 
 base_url = "https://www.chefkoch.de"
 
@@ -21,7 +22,7 @@ def AlleKategorien():
 
     # Anzahl Rezepte rausfinden
     for kat, content in alle_kategorien.items():
-        print(f"Aktuell ist Kategorie {kat} dran.")
+        print(f"Aktuell ist Kategorie {kat} dran.", end="\r")
         kat_url = base_url + content["start_url"]
     
         response = requests.get(kat_url)
@@ -42,3 +43,27 @@ def AlleKategorien():
         content["alle_Seiten_urls"] = alle_urls
    
     return alle_kategorien
+
+# Alle Kategorien verarbeiten
+def AlleKategorienSpeichern():
+    alle_kategorien = AlleKategorien()
+
+    for kat, content in alle_kategorien.items():
+        anz = content["Anzahl Rezepte"]
+        print(f"Jetzt ist wieder Kategorie {kat} mit {anz} dran.", end="\r")
+    
+        alle_rezept_urls = []
+        for Seiten_URL in content["alle_Seiten_urls"]:
+            response = requests.get(Seiten_URL)
+            soup = BeautifulSoup(response.text, "lxml")
+
+            rezepte = soup.find_all("a", {"class": "ds-recipe-card__link ds-teaser-link"})
+            for rezept in rezepte:
+                rezept_url = rezept.attrs["href"]
+                alle_rezept_urls.append(rezept_url)   
+        
+        content["alle_Rezept_urls"] = alle_rezept_urls   
+
+
+    with open("AlleKategorien.json", 'w') as json_file:
+        json.dump(alle_kategorien, json_file, indent=4)
